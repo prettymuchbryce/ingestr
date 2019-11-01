@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"strconv"
@@ -20,6 +22,9 @@ import (
 var latestBlock *big.Int
 
 var zero = big.NewInt(int64(0))
+
+type clients struct {
+}
 
 type config struct {
 	ethNodeHost         string
@@ -72,6 +77,12 @@ func loadEnvVariables() *config {
 }
 
 func main() {
+	env := os.Getenv("INGESTR_ENV")
+
+	if env == "" {
+		godotenv.Load(".env.development")
+	}
+
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -101,11 +112,12 @@ func main() {
 				if err != nil {
 					log.Error("Failed to get next block in redis")
 				} else {
+					fmt.Println(nextBlock, "ok")
 					if nextBlock == zero {
 						nextBlock = conf.latestBlockDefault
 					}
 
-					if latestBlock.Cmp(nextBlock.Add(nextBlock, big.NewInt(int64(conf.minConfirmations)))) == -1 {
+					if latestBlock.Cmp(nextBlock.Add(nextBlock, big.NewInt(int64(conf.minConfirmations)))) == 1 {
 						ctx := context.Background()
 						ctx, cancelFn := context.WithTimeout(ctx, msToDuration(conf.httpReqTimeoutMS))
 						block, err := ethClient.BlockByNumber(ctx, nextBlock)
@@ -133,19 +145,25 @@ func main() {
 		log.Fatal("Failed to subscribe to latest block")
 	}
 
-	header := <-ethChan
-	latestBlock = header.Number
+	fmt.Println("Lets go get a new block")
+
+	for {
+		header := <-ethChan
+		latestBlock = header.Number
+
+		fmt.Println("Found new block")
+		log.Infof("Found new block: %s", latestBlock)
+	}
 }
 
 func getNextBlockNumber(client *redis.Client, config *config) (*big.Int, error) {
 	cmd := client.Get(config.redisLatestBlockKey)
 	result, err := cmd.Result()
-	if err != nil {
-		return big.NewInt(0), err
-	}
 
-	if cmd.String() == "" {
+	if err == redis.Nil {
 		return config.latestBlockDefault, nil
+	} else if err != nil {
+		return big.NewInt(0), err
 	}
 
 	blockNumber, _ := strconv.Atoi(result)
@@ -159,7 +177,18 @@ func processBlock(
 	client *redis.Client,
 	s3 *s3.S3,
 	sns *sns.SNS,
-) {
+) error {
+	fmt.Println(block.Number())
+
+	resp, err := RPCMarshalBlock(block, true, true)
+	if err != nil {
+		return err
+	}
+
+	buf, _ := json.Marshal(resp)
+	fmt.Println(string(buf))
+
+	return nil
 	// Pull the block
 	// Store in S3
 	// Publish to SNS

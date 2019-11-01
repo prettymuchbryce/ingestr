@@ -2,19 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"os"
 	"strconv"
-	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	sns "github.com/aws/aws-sdk-go/service/sns"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
-	redis "github.com/go-redis/redis/v7"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 )
@@ -24,6 +18,10 @@ var latestBlock *big.Int
 var zero = big.NewInt(int64(0))
 
 type clients struct {
+	eth   ethClient
+	redis redisClient
+	s3    s3Client
+	sns   snsClient
 }
 
 type config struct {
@@ -92,43 +90,56 @@ func main() {
 
 	initLogger()
 
-	ethClient := connect(conf.ethNodeHost, conf.ethNodePort)
+	ethClient, err := createRealEthClient(conf.ethNodeHost, conf.ethNodePort)
+	if err != nil {
+		log.Fatal("Failed to connect to ETH node")
+	}
 
+	redisClient, err := createRealRedisClient(
+		conf.redisAddress,
+		conf.redisPassword,
+		conf.redisDB,
+		conf.redisLatestBlockKey,
+		conf.latestBlockDefault,
+	)
+	if err != nil {
+		log.Fatal("Failed to connect to redis")
+	}
+
+	snsClient := createRealSnsClient(conf.snsTopic, msToDuration(conf.snsTimeoutMS))
+
+	s3Client := createRealS3Client(conf.s3BucketURI, msToDuration(conf.s3TimeoutMS))
+
+	clients := &clients{
+		eth:   ethClient,
+		redis: redisClient,
+		sns:   snsClient,
+		s3:    s3Client,
+	}
+
+	start(clients, conf)
+}
+
+func start(clients *clients, config *config) {
 	go func() {
-		redisClient, err := createRedisClient(conf.redisAddress, conf.redisPassword, conf.redisDB)
-		if err != nil {
-			log.Fatal("Failed to connect to redis")
-		}
-
-		s3, cancelS3Context := createS3(msToDuration(conf.s3TimeoutMS))
-		defer cancelS3Context()
-
-		sns, cancelSNSContext := createSNS(msToDuration(conf.snsTimeoutMS))
-		defer cancelSNSContext()
-
 		for {
 			if latestBlock != nil {
-				nextBlock, err := getNextBlockNumber(redisClient, conf)
+				nextBlock, err := clients.redis.getNextBlockNumber()
 				if err != nil {
 					log.Error("Failed to get next block in redis")
 				} else {
-					fmt.Println(nextBlock, "ok")
 					if nextBlock == zero {
-						nextBlock = conf.latestBlockDefault
+						nextBlock = config.latestBlockDefault
 					}
 
-					if latestBlock.Cmp(nextBlock.Add(nextBlock, big.NewInt(int64(conf.minConfirmations)))) == 1 {
-						ctx := context.Background()
-						ctx, cancelFn := context.WithTimeout(ctx, msToDuration(conf.httpReqTimeoutMS))
-						block, err := ethClient.BlockByNumber(ctx, nextBlock)
-						if err != nil {
-							log.Error("Failed to get next block from Ethereum client")
-						} else {
-							processBlock(block, conf, redisClient, s3, sns)
-						}
-						if cancelFn != nil {
-							cancelFn()
-						}
+					nextAllowedBlock := nextBlock.Add(
+						nextBlock,
+						big.NewInt(int64(config.minConfirmations)),
+					)
+
+					// if latestBlock >= nextBlock + minConfirmations
+					if latestBlock.Cmp(nextAllowedBlock) >= 0 {
+						processBlock(nextBlock, config, clients)
 					}
 				}
 			}
@@ -136,131 +147,52 @@ func main() {
 	}()
 
 	ctx := context.Background()
-	ctx, cancelFn := context.WithTimeout(ctx, msToDuration(conf.newBlockTimeoutMS))
+	ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.newBlockTimeoutMS))
 	defer cancelFn()
 
 	ethChan := make(chan *types.Header)
-	_, err = ethClient.SubscribeNewHead(ctx, ethChan)
+	_, err := clients.eth.SubscribeNewHead(ctx, ethChan)
 	if err != nil {
 		log.Fatal("Failed to subscribe to latest block")
 	}
-
-	fmt.Println("Lets go get a new block")
 
 	for {
 		header := <-ethChan
 		latestBlock = header.Number
 
-		fmt.Println("Found new block")
 		log.Infof("Found new block: %s", latestBlock)
 	}
 }
 
-func getNextBlockNumber(client *redis.Client, config *config) (*big.Int, error) {
-	cmd := client.Get(config.redisLatestBlockKey)
-	result, err := cmd.Result()
-
-	if err == redis.Nil {
-		return config.latestBlockDefault, nil
-	} else if err != nil {
-		return big.NewInt(0), err
-	}
-
-	blockNumber, _ := strconv.Atoi(result)
-
-	return big.NewInt(int64(blockNumber)), nil
-}
-
 func processBlock(
-	block *types.Block,
+	blockNumber *big.Int,
 	config *config,
-	client *redis.Client,
-	s3 *s3.S3,
-	sns *sns.SNS,
+	clients *clients,
 ) error {
-	fmt.Println(block.Number())
 
-	resp, err := RPCMarshalBlock(block, true, true)
-	if err != nil {
-		return err
+	block, err := clients.s3.getBlock(blockNumber)
+	if err == s3.ErrCodeNoSuchKey {
+
 	}
+	fmt.Println(block)
+	fmt.Println(err)
 
-	buf, _ := json.Marshal(resp)
-	fmt.Println(string(buf))
+	/*
+		ctx := context.Background()
+		ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
+		block, err := clients.eth.BlockByNumber(ctx, nextBlock)
+		resp, err := RPCMarshalBlock(block, true, true)
+		if err != nil {
+			return err
+		}
+
+		buf, _ := json.Marshal(resp)
+
+		fmt.Println(buf)
+	*/
 
 	return nil
 	// Pull the block
 	// Store in S3
 	// Publish to SNS
-}
-
-func connect(host string, port string) *ethclient.Client {
-	client, err := ethclient.Dial(host + ":" + port)
-	if err != nil {
-		log.Error(err)
-	}
-
-	return client
-}
-
-func createS3(timeout time.Duration) (*s3.S3, func()) {
-	// All clients require a Session. The Session provides the client with
-	// shared configuration such as region, endpoint, and credentials. A
-	// Session should be shared where possible to take advantage of
-	// configuration and credential caching. See the session package for
-	// more information.
-	sess := session.Must(session.NewSession())
-
-	// Create a new instance of the service's client with a Session.
-	// Optional aws.Config values can also be provided as variadic arguments
-	// to the New function. This option allows you to provide service
-	// specific configuration.
-	svc := s3.New(sess)
-
-	// Create a context with a timeout that will abort the upload if it takes
-	// more than the passed in timeout.
-	ctx := context.Background()
-	var cancelFn func()
-	if timeout > 0 {
-		ctx, cancelFn = context.WithTimeout(ctx, timeout)
-	}
-
-	return svc, cancelFn
-}
-
-func createSNS(timeout time.Duration) (*sns.SNS, func()) {
-	// All clients require a Session. The Session provides the client with
-	// shared configuration such as region, endpoint, and credentials. A
-	// Session should be shared where possible to take advantage of
-	// configuration and credential caching. See the session package for
-	// more information.
-	sess := session.Must(session.NewSession())
-
-	// Create a new instance of the service's client with a Session.
-	// Optional aws.Config values can also be provided as variadic arguments
-	// to the New function. This option allows you to provide service
-	// specific configuration.
-	svc := sns.New(sess)
-
-	// Create a context with a timeout that will abort the upload if it takes
-	// more than the passed in timeout.
-	ctx := context.Background()
-	var cancelFn func()
-	if timeout > 0 {
-		ctx, cancelFn = context.WithTimeout(ctx, timeout)
-	}
-
-	return svc, cancelFn
-}
-
-func createRedisClient(address string, password string, db int) (*redis.Client, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     address,
-		Password: password,
-		DB:       db,
-	})
-
-	_, err := client.Ping().Result()
-
-	return client, err
 }

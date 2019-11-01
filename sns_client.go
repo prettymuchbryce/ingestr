@@ -1,7 +1,79 @@
 package main
 
-import "github.com/ethereum/go-ethereum/core/types"
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	sns "github.com/aws/aws-sdk-go/service/sns"
+	"github.com/ethereum/go-ethereum/core/types"
+)
 
 type snsClient interface {
 	broadcast(block *types.Block) error
+}
+
+type realSnsClient struct {
+	topic   string
+	sns     *sns.SNS
+	timeout time.Duration
+}
+
+func createRealSnsClient(topic string, timeout time.Duration) snsClient {
+	// All clients require a Session. The Session provides the client with
+	// shared configuration such as region, endpoint, and credentials. A
+	// Session should be shared where possible to take advantage of
+	// configuration and credential caching. See the session package for
+	// more information.
+	sess := session.Must(session.NewSession())
+
+	// Create a new instance of the service's client with a Session.
+	// Optional aws.Config values can also be provided as variadic arguments
+	// to the New function. This option allows you to provide service
+	// specific configuration.
+	svc := sns.New(sess)
+
+	// Create a context with a timeout that will abort the upload if it takes
+	// more than the passed in timeout.
+	ctx := context.Background()
+	if timeout > 0 {
+		ctx, _ = context.WithTimeout(ctx, timeout)
+	}
+
+	return &realSnsClient{
+		sns:     svc,
+		timeout: timeout,
+		topic:   topic,
+	}
+}
+
+func (client *realSnsClient) broadcast(block *types.Block) error {
+	jsonMap, err := RPCMarshalBlock(block, true, true)
+	if err != nil {
+		return err
+	}
+
+	jsonBytes, err := json.Marshal(jsonMap)
+	if err != nil {
+		return err
+	}
+
+	jsonString := string(jsonBytes)
+
+	ctx := context.Background()
+	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
+	defer cancelFn()
+
+	input := &sns.PublishInput{
+		Message:  &jsonString,
+		TopicArn: &client.topic,
+	}
+
+	_, err = client.sns.PublishWithContext(ctx, input)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

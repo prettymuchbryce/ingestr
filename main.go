@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"os"
 	"strconv"
@@ -90,6 +89,9 @@ func main() {
 
 	initLogger()
 
+	log.Info("Starting up")
+	log.Info("Creating Clients")
+
 	ethClient, err := createRealEthClient(conf.ethNodeHost, conf.ethNodePort)
 	if err != nil {
 		log.Fatal("Failed to connect to ETH node")
@@ -150,6 +152,7 @@ func start(clients *clients, config *config) {
 	ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.newBlockTimeoutMS))
 	defer cancelFn()
 
+	log.Info("Subscribing to new blocks")
 	ethChan := make(chan *types.Header)
 	_, err := clients.eth.SubscribeNewHead(ctx, ethChan)
 	if err != nil {
@@ -169,30 +172,37 @@ func processBlock(
 	config *config,
 	clients *clients,
 ) error {
+	log.Infof("Processing block: %s", blockNumber.String())
 
 	block, err := clients.s3.getBlock(blockNumber)
-	if err == s3.ErrCodeNoSuchKey {
-
-	}
-	fmt.Println(block)
-	fmt.Println(err)
-
-	/*
+	if err.Error() == s3.ErrCodeNoSuchKey {
 		ctx := context.Background()
 		ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
-		block, err := clients.eth.BlockByNumber(ctx, nextBlock)
-		resp, err := RPCMarshalBlock(block, true, true)
+		defer cancelFn()
+		block, err = clients.eth.BlockByNumber(ctx, blockNumber)
 		if err != nil {
-			return err
+			log.Errorf("Failed to get block from ETH node: %s", block.Number().String())
 		}
+	}
 
-		buf, _ := json.Marshal(resp)
+	err = clients.sns.broadcast(block)
+	if err != nil {
+		log.Errorf("Failed to publish block to SNS: %s", block.Number().String())
+	}
 
-		fmt.Println(buf)
-	*/
+	err = clients.s3.storeBlock(block)
+	if err != nil {
+		log.Errorf("Failed to store block in S3: %s", block.Number().String())
+	}
+
+	if err != nil {
+		err = clients.redis.updateBlockNumber(block.Number())
+		if err != nil {
+			log.Errorf("Failed to update latest block in redis: %s", block.Number().String())
+		}
+	}
+
+	log.Infof("Successfully processed block: %s", block.Number().String())
 
 	return nil
-	// Pull the block
-	// Store in S3
-	// Publish to SNS
 }

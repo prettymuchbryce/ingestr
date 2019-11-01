@@ -58,12 +58,17 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 		Bucket: &client.bucket,
 		Key:    &blockNumberString,
 	}
-	_, err := client.s3.GetObjectWithContext(ctx, input)
+	result, err := client.s3.GetObjectWithContext(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	return &types.Block{}, nil
+	block, err := unmarshalBlock(result.String())
+	if err != nil {
+		return nil, err
+	}
+
+	return block, nil
 }
 
 func (client *realS3Client) storeBlock(block *types.Block) error {

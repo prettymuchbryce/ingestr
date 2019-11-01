@@ -57,5 +57,9 @@ func (client *realRedisClient) getNextBlockNumber() (*big.Int, error) {
 }
 
 func (client *realRedisClient) updateBlockNumber(blockNumber *big.Int) error {
-	return nil
+	err := client.redis.Watch(func(tx *redis.Tx) error {
+		status := tx.Set(client.latestBlockKey, blockNumber.String(), 0)
+		return status.Err()
+	}, client.latestBlockKey)
+	return err
 }

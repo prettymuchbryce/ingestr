@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +15,7 @@ import (
 // returned. When fullTx is true the returned block contains full transaction details, otherwise it will only contain
 // transaction hashes.
 func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool) (map[string]interface{}, error) {
+	fmt.Println(block)
 	fields := RPCMarshalHeader(block.Header())
 	fields["size"] = hexutil.Uint64(block.Size())
 

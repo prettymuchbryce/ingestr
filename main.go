@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 	"strconv"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/joho/godotenv"
@@ -130,7 +132,7 @@ func start(clients *clients, config *config) {
 				if err != nil {
 					log.Error("Failed to get next block in redis")
 				} else {
-					if nextBlock == zero {
+					if nextBlock.Cmp(zero) == 0 {
 						nextBlock = config.latestBlockDefault
 					}
 
@@ -175,15 +177,25 @@ func processBlock(
 	log.Infof("Processing block: %s", blockNumber.String())
 
 	block, err := clients.s3.getBlock(blockNumber)
-	if err.Error() == s3.ErrCodeNoSuchKey {
-		ctx := context.Background()
-		ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
-		defer cancelFn()
-		block, err = clients.eth.BlockByNumber(ctx, blockNumber)
-		if err != nil {
-			log.Errorf("Failed to get block from ETH node: %s", block.Number().String())
+	if err != nil {
+		fmt.Println(err)
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() == s3.ErrCodeNoSuchKey {
+				ctx := context.Background()
+				ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
+				defer cancelFn()
+				var err2 error
+				block, err2 = clients.eth.BlockByNumber(ctx, blockNumber)
+				if err2 != nil {
+					log.Errorf("Failed to get block from ETH node: %s", block.Number().String())
+				}
+			}
+		} else {
+			log.Errorf("Failed to reach S3 to get block: %s", blockNumber.String())
 		}
 	}
+
+	fmt.Println("wat is block", block)
 
 	err = clients.sns.broadcast(block)
 	if err != nil {

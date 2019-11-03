@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -54,6 +55,8 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()
 	blockNumberString := blockNumber.String()
+
+	fmt.Println("blockNumberString", blockNumberString)
 	input := &s3.GetObjectInput{
 		Bucket: &client.bucket,
 		Key:    &blockNumberString,

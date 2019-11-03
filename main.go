@@ -178,7 +178,6 @@ func processBlock(
 
 	block, err := clients.s3.getBlock(blockNumber)
 	if err != nil {
-		fmt.Println(err)
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == s3.ErrCodeNoSuchKey {
 				ctx := context.Background()
@@ -207,7 +206,7 @@ func processBlock(
 		log.Errorf("Failed to store block in S3: %s", block.Number().String())
 	}
 
-	if err != nil {
+	if err == nil {
 		err = clients.redis.updateBlockNumber(block.Number())
 		if err != nil {
 			log.Errorf("Failed to update latest block in redis: %s", block.Number().String())

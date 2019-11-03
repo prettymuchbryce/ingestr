@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"encoding/json"
+	"io/ioutil"
 	"math/big"
 	"time"
 
@@ -56,7 +58,6 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 	defer cancelFn()
 	blockNumberString := blockNumber.String()
 
-	fmt.Println("blockNumberString", blockNumberString)
 	input := &s3.GetObjectInput{
 		Bucket: &client.bucket,
 		Key:    &blockNumberString,
@@ -66,7 +67,12 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 		return nil, err
 	}
 
-	block, err := unmarshalBlock(result.String())
+	body, err := ioutil.ReadAll(result.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := unmarshalBlock(string(body))
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +87,24 @@ func (client *realS3Client) storeBlock(block *types.Block) error {
 
 	blockNumberString := block.Number().String()
 
+	jsonMap, err := RPCMarshalBlock(block, true, true)
+	if err != nil {
+		return err
+	}
+
+	jsonBytes, err := json.Marshal(jsonMap)
+	if err != nil {
+		return err
+	}
+
+	jsonString := string(jsonBytes)
+
 	input := &s3.PutObjectInput{
 		Bucket: &client.bucket,
 		Key:    &blockNumberString,
+		Body:   bytes.NewReader([]byte(jsonString)),
 	}
 
-	_, err := client.s3.PutObjectWithContext(ctx, input)
+	_, err = client.s3.PutObjectWithContext(ctx, input)
 	return err
 }

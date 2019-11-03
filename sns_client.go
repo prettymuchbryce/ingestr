@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -69,6 +70,8 @@ func (client *realSnsClient) broadcast(block *types.Block) error {
 		Message:  &jsonString,
 		TopicArn: &client.topic,
 	}
+
+	fmt.Println(input)
 
 	_, err = client.sns.PublishWithContext(ctx, input)
 	if err != nil {

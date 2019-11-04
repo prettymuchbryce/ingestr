@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -15,6 +16,7 @@ import (
 )
 
 var latestBlock *big.Int
+var wg *sync.WaitGroup = &sync.WaitGroup{}
 
 var zero = big.NewInt(int64(0))
 
@@ -104,7 +106,6 @@ func main() {
 		conf.redisPassword,
 		conf.redisDB,
 		conf.redisLatestBlockKey,
-		conf.latestBlockDefault,
 	)
 	if err != nil {
 		log.Fatal("Failed to connect to redis")
@@ -133,6 +134,7 @@ func start(clients *clients, config *config) {
 					log.Error("Failed to get next block in redis")
 				} else {
 					if nextBlock.Cmp(zero) == 0 {
+						fmt.Println("REDIS: Found no block")
 						nextBlock = config.latestBlockDefault
 					}
 
@@ -207,9 +209,10 @@ func processBlock(
 	}
 
 	if err == nil {
-		err = clients.redis.updateBlockNumber(block.Number())
+		nextBlockNumber := block.Number().Add(block.Number(), big.NewInt(int64(1)))
+		err = clients.redis.updateBlockNumber(nextBlockNumber)
 		if err != nil {
-			log.Errorf("Failed to update latest block in redis: %s", block.Number().String())
+			log.Errorf("Failed to update latest block in redis: %s", nextBlockNumber.String())
 		}
 	}
 

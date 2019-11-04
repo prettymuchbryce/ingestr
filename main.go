@@ -28,52 +28,62 @@ type clients struct {
 }
 
 type config struct {
-	ethNodeHost         string
-	ethNodePort         string
-	latestBlockDefault  *big.Int
-	redisAddress        string
-	redisDB             int
-	redisLatestBlockKey string
-	redisPassword       string
-	s3BucketURI         string
-	s3Enabled           bool
-	s3TimeoutMS         int
-	snsEnabled          bool
-	snsTopic            string
-	snsTimeoutMS        int
-	minConfirmations    int
-	newBlockTimeoutMS   int
-	httpReqTimeoutMS    int
+	ethNodeHost               string
+	ethNodePort               string
+	httpReqTimeoutMS          int
+	maxConcurrency            int
+	minConfirmations          int
+	newBlockTimeoutMS         int
+	redisAddress              string
+	redisDB                   int
+	redisLastFinishedBlockKey string
+	redisPassword             string
+	redisWorkingBlockSetKey   string
+	redisWorkingTimeSetKey    string
+	s3BucketURI               string
+	s3Enabled                 bool
+	s3TimeoutMS               int
+	snsEnabled                bool
+	snsTimeoutMS              int
+	snsTopic                  string
+	workingBlockStart         *big.Int
+	workingBlockTTLSeconds    int
 }
 
 func loadEnvVariables() *config {
-	latestBlockDefault, _ := strconv.Atoi(os.Getenv("LATEST_BLOCK_DEFAULT"))
+	httpReqTimeoutMS, _ := strconv.Atoi(os.Getenv("HTTP_TIMEOUT_MS"))
+	maxConcurrency, _ := strconv.Atoi(os.Getenv("MAX_CONCURRENCY"))
 	minConfirmations, _ := strconv.Atoi(os.Getenv("MIN_CONFIRMATIONS"))
+	newBlockTimeoutMS, _ := strconv.Atoi(os.Getenv("NEW_BLOCK_TIMEOUT_MS"))
 	redisDB, _ := strconv.Atoi(os.Getenv("REDIS_DB"))
 	s3Enabled, _ := strconv.ParseBool(os.Getenv("S3_ENABLED"))
 	s3TimeoutMS, _ := strconv.Atoi(os.Getenv("S3_TIMEOUT_MS"))
 	snsEnabled, _ := strconv.ParseBool(os.Getenv("SNS_ENABLED"))
 	snsTimeoutMS, _ := strconv.Atoi(os.Getenv("SNS_TIMEOUT_MS"))
-	newBlockTimeoutMS, _ := strconv.Atoi(os.Getenv("NEW_BLOCK_TIMEOUT_MS"))
-	httpReqTimeoutMS, _ := strconv.Atoi(os.Getenv("HTTP_TIMEOUT_MS"))
+	workingBlockStart, _ := strconv.Atoi(os.Getenv("WORKING_BLOCK_START"))
+	workingBlockTTLSeconds, _ := strconv.Atoi(os.Getenv("WORKING_BLOCK_TTL_SECONDS"))
 
 	return &config{
-		ethNodeHost:         os.Getenv("ETH_NODE_HOST"),
-		ethNodePort:         os.Getenv("ETH_NODE_PORT"),
-		latestBlockDefault:  big.NewInt(int64(latestBlockDefault)),
-		minConfirmations:    minConfirmations,
-		redisAddress:        os.Getenv("REDIS_ADDRESS"),
-		redisDB:             redisDB,
-		redisLatestBlockKey: os.Getenv("REDIS_LATEST_BLOCK_KEY"),
-		redisPassword:       os.Getenv("REDIS_PASSWORD"),
-		s3BucketURI:         os.Getenv("S3_BUCKET_URI"),
-		s3Enabled:           s3Enabled,
-		s3TimeoutMS:         s3TimeoutMS,
-		snsEnabled:          snsEnabled,
-		snsTimeoutMS:        snsTimeoutMS,
-		snsTopic:            os.Getenv("SNS_TOPIC"),
-		newBlockTimeoutMS:   newBlockTimeoutMS,
-		httpReqTimeoutMS:    httpReqTimeoutMS,
+		ethNodeHost:               os.Getenv("ETH_NODE_HOST"),
+		ethNodePort:               os.Getenv("ETH_NODE_PORT"),
+		httpReqTimeoutMS:          httpReqTimeoutMS,
+		maxConcurrency:            maxConcurrency,
+		minConfirmations:          minConfirmations,
+		newBlockTimeoutMS:         newBlockTimeoutMS,
+		redisAddress:              os.Getenv("REDIS_ADDRESS"),
+		redisDB:                   redisDB,
+		redisLastFinishedBlockKey: os.Getenv("REDIS_LAST_FINISHED_BLOCK_KEY"),
+		redisPassword:             os.Getenv("REDIS_PASSWORD"),
+		redisWorkingBlockSetKey:   os.Getenv("REDIS_WORKING_BLOCK_SET_KEY"),
+		redisWorkingTimeSetKey:    os.Getenv("REDIS_WORKING_TIME_SET_KEY"),
+		s3BucketURI:               os.Getenv("S3_BUCKET_URI"),
+		s3Enabled:                 s3Enabled,
+		s3TimeoutMS:               s3TimeoutMS,
+		snsEnabled:                snsEnabled,
+		snsTimeoutMS:              snsTimeoutMS,
+		snsTopic:                  os.Getenv("SNS_TOPIC"),
+		workingBlockStart:         big.NewInt(int64(workingBlockStart)),
+		workingBlockTTLSeconds:    workingBlockTTLSeconds,
 	}
 }
 
@@ -105,7 +115,12 @@ func main() {
 		conf.redisAddress,
 		conf.redisPassword,
 		conf.redisDB,
-		conf.redisLatestBlockKey,
+		conf.workingBlockStart,
+		conf.redisWorkingTimeSetKey,
+		conf.redisWorkingBlockSetKey,
+		conf.redisLastFinishedBlockKey,
+		conf.maxConcurrency,
+		conf.workingBlockTTLSeconds,
 	)
 	if err != nil {
 		log.Fatal("Failed to connect to redis")

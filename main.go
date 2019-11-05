@@ -216,6 +216,25 @@ func processBlock(
 				if err2 != nil {
 					log.Errorf("Failed to get block from ETH node: %s", block.Number().String())
 				}
+				transactions := block.Transactions()
+				var receipts []*types.Receipt
+				for i := 0; i < len(transactions); i++ {
+					t := transactions[i]
+					ctx := context.Background()
+					ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
+					receipt, err := TransactionReceipt(ctx, t.Hash())
+					if err != nil {
+						return err
+					}
+					receipts = append(receipts, receipt)
+					cancelFn()
+					// t.Hash()
+				}
+
+				block = &ReceiptsBlock{
+					Block:    block,
+					Receipts: receipts,
+				}
 			}
 		} else {
 			log.Errorf("Failed to reach S3 to get block: %s", blockNumber.String())

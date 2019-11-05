@@ -14,8 +14,8 @@ import (
 )
 
 type s3Client interface {
-	getBlock(blockNumber *big.Int) (*types.Block, error)
-	storeBlock(block *types.Block) error
+	getBlock(blockNumber *big.Int) (*ReceiptsBlock, error)
+	storeBlock(blockNumber *big.Int, data string) error
 }
 
 type realS3Client struct {
@@ -80,7 +80,7 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 	return block, nil
 }
 
-func (client *realS3Client) storeBlock(block *types.Block) error {
+func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()

@@ -2,16 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	sns "github.com/aws/aws-sdk-go/service/sns"
-	"github.com/ethereum/go-ethereum/core/types"
 )
 
 type snsClient interface {
-	broadcast(block *types.Block) error
+	publish(data string) error
 }
 
 type realSnsClient struct {
@@ -48,25 +46,13 @@ func createRealSnsClient(topic string, timeout time.Duration) snsClient {
 	}
 }
 
-func (client *realSnsClient) broadcast(block *types.Block) error {
-	jsonMap, err := RPCMarshalBlock(block, true, true)
-	if err != nil {
-		return err
-	}
-
-	jsonBytes, err := json.Marshal(jsonMap)
-	if err != nil {
-		return err
-	}
-
-	jsonString := string(jsonBytes)
-
+func (client *realSnsClient) publish(data string) error {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()
 
 	input := &sns.PublishInput{
-		Message:  &jsonString,
+		Message:  &data,
 		TopicArn: &client.topic,
 	}
 

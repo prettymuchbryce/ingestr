@@ -16,7 +16,11 @@ func msToDuration(ms int) time.Duration {
 }
 
 func unmarshalBlock(blockJSON string) (*types.Block, error) {
-	var raw json.RawMessage = []byte(blockJSON)
+	var raw json.RawMessage
+	err := json.Unmarshal([]byte(blockJSON), &raw)
+	if err != nil {
+		return nil, err
+	}
 	// Decode header and transactions.
 	var head *types.Header
 	var body rpcBlock
@@ -27,12 +31,6 @@ func unmarshalBlock(blockJSON string) (*types.Block, error) {
 		return nil, err
 	}
 	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
-	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
-		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
-	}
-	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
-		return nil, fmt.Errorf("server returned empty uncle list but block header indicates uncles")
-	}
 	if head.TxHash == types.EmptyRootHash && len(body.Transactions) > 0 {
 		return nil, fmt.Errorf("server returned non-empty transaction list but block header indicates no transactions")
 	}
@@ -42,20 +40,15 @@ func unmarshalBlock(blockJSON string) (*types.Block, error) {
 	// Fill the sender cache of transactions in the block.
 	txs := make([]*types.Transaction, len(body.Transactions))
 	for i, tx := range body.Transactions {
-		txs[i] = tx.tx
+		txs[i] = tx
 	}
 	return types.NewBlockWithHeader(head).WithBody(txs, []*types.Header{}), nil
 }
 
 type rpcBlock struct {
-	Hash         common.Hash      `json:"hash"`
-	Transactions []rpcTransaction `json:"transactions"`
-	UncleHashes  []common.Hash    `json:"uncles"`
-}
-
-type rpcTransaction struct {
-	tx *types.Transaction
-	txExtraInfo
+	Hash         common.Hash          `json:"hash"`
+	Transactions []*types.Transaction `json:"transactions"`
+	UncleHashes  []common.Hash        `json:"uncles"`
 }
 
 type txExtraInfo struct {

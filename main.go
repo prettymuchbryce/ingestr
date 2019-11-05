@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/ethereum/go-ethereum/core/types"
+	redis "github.com/go-redis/redis/v7"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 )
@@ -144,26 +145,36 @@ func start(clients *clients, config *config) {
 	go func() {
 		for {
 			if latestBlock != nil {
-				nextBlock, err := clients.redis.getNextBlockNumber()
+				staleBlocks, err := clients.redis.getStaleWorkingBlocks()
 				if err != nil {
-					log.Error("Failed to get next block in redis")
-				} else {
-					if nextBlock.Cmp(zero) == 0 {
-						fmt.Println("REDIS: Found no block")
-						nextBlock = config.latestBlockDefault
+					if err != redis.TxFailedErr {
+						log.Error(err)
+						continue
 					}
+				}
 
-					nextAllowedBlock := nextBlock.Add(
-						nextBlock,
-						big.NewInt(int64(config.minConfirmations)),
-					)
+				nextBlocks, err := clients.redis.getNextWorkingBlocks()
+				if err != nil {
+					if err != redis.TxFailedErr {
+						log.Error(err)
+						continue
+					}
+				}
 
-					// if latestBlock >= nextBlock + minConfirmations
-					if latestBlock.Cmp(nextAllowedBlock) >= 0 {
-						processBlock(nextBlock, config, clients)
+				blocks := append(staleBlocks, nextBlocks...)
+
+				nextAllowedBlock := latestBlock.Sub(
+					latestBlock,
+					big.NewInt(int64(config.minConfirmations)),
+				)
+
+				for _, block := range blocks {
+					if block.Cmp(nextAllowedBlock) <= 0 {
+						go processBlock(block, config, clients)
 					}
 				}
 			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
@@ -211,7 +222,9 @@ func processBlock(
 		}
 	}
 
-	fmt.Println("wat is block", block)
+	if err == nil {
+		log.Infof("s3 Cache hit for block: %s", blockNumber.String())
+	}
 
 	err = clients.sns.broadcast(block)
 	if err != nil {
@@ -223,11 +236,18 @@ func processBlock(
 		log.Errorf("Failed to store block in S3: %s", block.Number().String())
 	}
 
-	if err == nil {
-		nextBlockNumber := block.Number().Add(block.Number(), big.NewInt(int64(1)))
-		err = clients.redis.updateBlockNumber(nextBlockNumber)
-		if err != nil {
-			log.Errorf("Failed to update latest block in redis: %s", nextBlockNumber.String())
+	for retries := 10; retries > 0; retries-- {
+		err := clients.redis.removeFromWorkingSet(block)
+		if err == nil {
+			break
+		}
+		if err != redis.TxFailedErr {
+			log.Error(err)
+			return err
+		}
+		if retries == 0 {
+			log.Error("Failed to process block due to redis lock. Will retry after TTL")
+			return nil
 		}
 	}
 

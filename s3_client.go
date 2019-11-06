@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"fmt"
 	"io/ioutil"
 	"math/big"
 	"time"
@@ -64,37 +63,24 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (string, error) {
 	}
 
 	result, err := client.s3.GetObjectWithContext(ctx, input)
-	fmt.Println("here?1")
 	if err != nil {
 		return "", err
 	}
 
-	data, err := ioutil.ReadAll(result.Body)
-	fmt.Println("here?f")
-	if err != nil {
-		return "", err
-	}
-
-	gzipReader, err := gzip.NewReader(bytes.NewReader(data))
-	fmt.Println("here?2")
+	gzipReader, err := gzip.NewReader(result.Body)
 	if err != nil {
 		return "", err
 	}
 
 	defer gzipReader.Close()
 
-	var buffer bytes.Buffer
-	data, err = ioutil.ReadAll(gzipReader)
-	fmt.Println("here?3")
+	// var buffer bytes.Buffer
+	data, err := ioutil.ReadAll(gzipReader)
 	if err != nil {
 		return "", err
 	}
 
-	fmt.Println("here?4")
-
-	buffer.Write(data)
-
-	return buffer.String(), nil
+	return string(data), nil
 }
 
 func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error {
@@ -106,8 +92,8 @@ func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error 
 
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
-	defer gzipWriter.Close()
 	gzipWriter.Write([]byte(data))
+	gzipWriter.Close()
 
 	input := &s3.PutObjectInput{
 		Bucket: &client.bucket,

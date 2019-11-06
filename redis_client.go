@@ -233,7 +233,7 @@ func (client *realRedisClient) removeFromWorkingSet(blockNumber *big.Int) error 
 			}
 			lastFinishedBlock = big.NewInt(lastFinishedInt)
 
-			if blockNumber.Cmp(lastFinishedBlock) < 0 {
+			if blockNumber.Cmp(lastFinishedBlock) == 1 {
 				cmd := tx.Set(client.lastFinishedBlockKey, blockNumber.Int64(), 0)
 				if cmd.Err() != nil {
 					return cmd.Err()

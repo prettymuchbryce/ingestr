@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 	"strconv"
@@ -219,6 +220,7 @@ func processBlock(
 				block, err := clients.eth.BlockByNumber(ctx, blockNumber)
 				if err != nil {
 					log.Errorf("Failed to get block from ETH node: %s", blockNumber.String())
+					return err
 				}
 				transactions := block.Transactions()
 				var receipts []*types.Receipt
@@ -229,6 +231,7 @@ func processBlock(
 					receipt, err := clients.eth.TransactionReceipt(ctx, t.Hash())
 					if err != nil {
 						cancelFn()
+						log.Error(err)
 						return err
 					}
 					receipts = append(receipts, receipt)
@@ -244,26 +247,34 @@ func processBlock(
 
 				receiptBlockString, err = marshalReceiptBlock(receiptsBlock)
 				if err != nil {
+					log.Error(err)
 					return err
 				}
 			}
 		} else {
-			log.Errorf("Failed to reach S3 to get block: %s", blockNumber.String())
+			log.Error(err)
+			return err
 		}
 	}
+
+	fmt.Println(receiptBlockString)
 
 	if err == nil {
 		log.Infof("s3 Cache hit for block: %s", blockNumber.String())
 	}
 
-	err = clients.sns.publish(receiptBlockString)
+	err = clients.sns.publish(blockNumber.String())
 	if err != nil {
-		log.Errorf("Failed to publish block to SNS: %s", blockNumber.String())
+		log.Errorf("Failed to publish new block number to SNS: %s", blockNumber.String())
+		log.Error(err)
+		return err
 	}
 
 	err = clients.s3.storeBlock(blockNumber, receiptBlockString)
 	if err != nil {
 		log.Errorf("Failed to store block in S3: %s", blockNumber.String())
+		log.Error(err)
+		return err
 	}
 
 	for retries := 10; retries > 0; retries-- {
@@ -277,6 +288,7 @@ func processBlock(
 		}
 		if retries == 0 {
 			log.Error("Failed to process block due to redis lock. Will retry after TTL")
+			log.Error(err)
 			return nil
 		}
 	}

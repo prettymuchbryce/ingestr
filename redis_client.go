@@ -35,7 +35,7 @@ func createRealRedisClient(
 	lastFinishedBlockKey string,
 	maxConcurrency int,
 	ttlSeconds int,
-) (redisClient, error) {
+) (*realRedisClient, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     address,
 		Password: password,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -120,39 +121,7 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 
 		var nextBlock *big.Int = big.NewInt(0)
 
-		// If nothing in the working set
-		if card == 0 {
-
-			// Check where we previously left off
-			cmd := client.redis.Get(client.lastFinishedBlockKey)
-			err := cmd.Err()
-
-			if err != nil {
-				// This is a first run
-				if err == redis.Nil {
-					nextBlock = client.workingBlockStart
-				} else {
-					return cmd.Err()
-				}
-			} else {
-				// Start from where we left off
-				lastFinishedInt, err := cmd.Int64()
-				if err != nil {
-					return err
-				}
-				lastFinishedBlock := big.NewInt(lastFinishedInt)
-				nextBlock.Add(lastFinishedBlock, big.NewInt(1))
-			}
-
-			for i := 0; i < client.maxConcurrency; i++ {
-				iBig := big.NewInt(int64(i))
-				var next *big.Int = big.NewInt(0)
-				next.Add(nextBlock, iBig)
-				blocks = append(blocks, next)
-			}
-		} else {
-			// If blocks in the working set, check to see how many more blocks we can
-			// start work on (if any)
+		if card > 0 {
 			options := &redis.ZRangeBy{
 				Min:    "-inf",
 				Max:    "inf",
@@ -172,12 +141,43 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 
 			latestBlock := big.NewInt(int64(resultInt))
 			nextBlock.Add(latestBlock, big.NewInt(1))
-			for i := 0; i < client.maxConcurrency-int(card); i++ {
-				iBig := big.NewInt(int64(i))
-				var next *big.Int = big.NewInt(0)
-				next.Add(nextBlock, iBig)
-				blocks = append(blocks, next)
+
+			fmt.Println("Next block after working set is", nextBlock.String())
+		}
+
+		// Check where we previously left off
+		getCmd := client.redis.Get(client.lastFinishedBlockKey)
+		err = getCmd.Err()
+
+		if err != nil {
+			// This is a first run
+			if err == redis.Nil {
+				nextBlock = client.workingBlockStart
+			} else {
+				return err
 			}
+		} else {
+			// Start from where we left off
+			lastFinishedInt, err := getCmd.Int64()
+			if err != nil {
+				return err
+			}
+			lastFinishedBlock := big.NewInt(lastFinishedInt)
+
+			fmt.Println("Compare lastFinishedBlock", lastFinishedBlock.String(), " with next block after working set ", nextBlock.String())
+
+			if lastFinishedBlock.Cmp(nextBlock) >= 0 {
+				nextBlock.Add(lastFinishedBlock, big.NewInt(1))
+			}
+
+			fmt.Println("Next block will be ", nextBlock.String())
+		}
+
+		for i := 0; i < client.maxConcurrency-int(card); i++ {
+			iBig := big.NewInt(int64(i))
+			var next *big.Int = big.NewInt(0)
+			next.Add(nextBlock, iBig)
+			blocks = append(blocks, next)
 		}
 
 		if len(blocks) == 0 {
@@ -231,6 +231,7 @@ func (client *realRedisClient) removeFromWorkingSet(blockNumber *big.Int) error 
 			if err != nil {
 				return err
 			}
+
 			lastFinishedBlock = big.NewInt(lastFinishedInt)
 
 			if blockNumber.Cmp(lastFinishedBlock) == 1 {

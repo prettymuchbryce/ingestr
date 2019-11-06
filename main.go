@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -18,9 +17,6 @@ import (
 )
 
 var latestBlock *big.Int
-var wg *sync.WaitGroup = &sync.WaitGroup{}
-
-var zero = big.NewInt(int64(0))
 
 type clients struct {
 	eth   ethClient
@@ -99,6 +95,7 @@ func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
+		return
 	}
 
 	conf := loadEnvVariables()
@@ -111,6 +108,7 @@ func main() {
 	ethClient, err := createRealEthClient(conf.ethNodeHost, conf.ethNodePort)
 	if err != nil {
 		log.Fatal("Failed to connect to ETH node")
+		return
 	}
 
 	log.Info("Connecting to redis")
@@ -128,6 +126,7 @@ func main() {
 	)
 	if err != nil {
 		log.Fatal("Failed to connect to redis")
+		return
 	}
 
 	log.Info("Creating SNS client")
@@ -149,36 +148,7 @@ func main() {
 func start(clients *clients, config *config) {
 	go func() {
 		for {
-			if latestBlock != nil {
-				staleBlocks, err := clients.redis.getStaleWorkingBlocks()
-				if err != nil {
-					if err != redis.TxFailedErr {
-						log.Error(err)
-						continue
-					}
-				}
-
-				nextBlocks, err := clients.redis.getNextWorkingBlocks()
-				if err != nil {
-					if err != redis.TxFailedErr {
-						log.Error(err)
-						continue
-					}
-				}
-
-				blocks := append(staleBlocks, nextBlocks...)
-
-				nextAllowedBlock := latestBlock.Sub(
-					latestBlock,
-					big.NewInt(int64(config.minConfirmations)),
-				)
-
-				for _, block := range blocks {
-					if block.Cmp(nextAllowedBlock) <= 0 {
-						go processBlock(block, config, clients)
-					}
-				}
-			}
+			findNextWork(clients, config)
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()
@@ -202,6 +172,42 @@ func start(clients *clients, config *config) {
 	}
 }
 
+func findNextWork(clients *clients, config *config) int {
+	var newWorkItems int = 0
+	if latestBlock != nil {
+		staleBlocks, err := clients.redis.getStaleWorkingBlocks()
+		if err != nil {
+			if err != redis.TxFailedErr {
+				log.Error(err)
+				return 0
+			}
+		}
+
+		nextBlocks, err := clients.redis.getNextWorkingBlocks()
+		if err != nil {
+			if err != redis.TxFailedErr {
+				log.Error(err)
+				return 0
+			}
+		}
+
+		blocks := append(staleBlocks, nextBlocks...)
+
+		nextAllowedBlock := latestBlock.Sub(
+			latestBlock,
+			big.NewInt(int64(config.minConfirmations)),
+		)
+
+		for _, block := range blocks {
+			if block.Cmp(nextAllowedBlock) <= 0 {
+				go processBlock(block, config, clients)
+				newWorkItems++
+			}
+		}
+	}
+	return newWorkItems
+}
+
 func processBlock(
 	blockNumber *big.Int,
 	config *config,
@@ -210,7 +216,7 @@ func processBlock(
 	log.Infof("Processing block: %s", blockNumber.String())
 
 	var receiptBlockString string
-	receiptBlockString, err := clients.s3.getBlock(blockNumber)
+	receiptBlockString, err := clients.s3.GetBlock(blockNumber)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == s3.ErrCodeNoSuchKey {
@@ -223,7 +229,7 @@ func processBlock(
 					return err
 				}
 				transactions := block.Transactions()
-				var receipts []*types.Receipt
+				var receipts []*types.Receipt = make([]*types.Receipt, 0)
 				for i := 0; i < len(transactions); i++ {
 					t := transactions[i]
 					ctx := context.Background()
@@ -250,6 +256,8 @@ func processBlock(
 					log.Error(err)
 					return err
 				}
+
+				fmt.Println(receiptBlockString)
 			}
 		} else {
 			log.Error(err)
@@ -257,20 +265,18 @@ func processBlock(
 		}
 	}
 
-	fmt.Println(receiptBlockString)
-
 	if err == nil {
 		log.Infof("s3 Cache hit for block: %s", blockNumber.String())
 	}
 
-	err = clients.sns.publish(blockNumber.String())
+	err = clients.sns.Publish(blockNumber.String())
 	if err != nil {
 		log.Errorf("Failed to publish new block number to SNS: %s", blockNumber.String())
 		log.Error(err)
 		return err
 	}
 
-	err = clients.s3.storeBlock(blockNumber, receiptBlockString)
+	err = clients.s3.StoreBlock(blockNumber, receiptBlockString)
 	if err != nil {
 		log.Errorf("Failed to store block in S3: %s", blockNumber.String())
 		log.Error(err)

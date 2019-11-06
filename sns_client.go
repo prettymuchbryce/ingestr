@@ -9,7 +9,7 @@ import (
 )
 
 type snsClient interface {
-	publish(data string) error
+	Publish(data string) error
 }
 
 type realSnsClient struct {
@@ -46,7 +46,7 @@ func createRealSnsClient(topic string, timeout time.Duration) snsClient {
 	}
 }
 
-func (client *realSnsClient) publish(data string) error {
+func (client *realSnsClient) Publish(data string) error {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()

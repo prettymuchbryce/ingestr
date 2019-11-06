@@ -13,8 +13,8 @@ import (
 )
 
 type s3Client interface {
-	getBlock(blockNumber *big.Int) (string, error)
-	storeBlock(blockNumber *big.Int, data string) error
+	GetBlock(blockNumber *big.Int) (string, error)
+	StoreBlock(blockNumber *big.Int, data string) error
 }
 
 type realS3Client struct {
@@ -51,7 +51,7 @@ func createRealS3Client(bucket string, timeout time.Duration) *realS3Client {
 	}
 }
 
-func (client *realS3Client) getBlock(blockNumber *big.Int) (string, error) {
+func (client *realS3Client) GetBlock(blockNumber *big.Int) (string, error) {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()
@@ -83,7 +83,7 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (string, error) {
 	return string(data), nil
 }
 
-func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error {
+func (client *realS3Client) StoreBlock(blockNumber *big.Int, data string) error {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()

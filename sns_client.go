@@ -56,7 +56,7 @@ func (client *realSnsClient) publish(data string) error {
 		TopicArn: &client.topic,
 	}
 
-	_, err = client.sns.PublishWithContext(ctx, input)
+	_, err := client.sns.PublishWithContext(ctx, input)
 	if err != nil {
 		return err
 	}

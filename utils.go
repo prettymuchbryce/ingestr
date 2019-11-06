@@ -2,11 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -17,33 +15,27 @@ func msToDuration(ms int) time.Duration {
 }
 
 func marshalReceiptBlock(block *receiptsBlock) (string, error) {
-	blockFields, err := marshalBlock(block.Block, true, true)
+	resultBytes, err := json.Marshal(block)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	blockFields["receipts"] = block.Receipts
-
-	resultBytes, error := json.Marshal(blockFields)
-	if err != nil {
-		return nil, err
-	}
-
-	return string(resultBytes)
+	return string(resultBytes), nil
 }
 
 func unmarshalReceiptBlock(blockJSON string) (*receiptsBlock, error) {
-	var block *types.Block
-	var receipts []*types.Receipt
+	var receiptsBlock *receiptsBlock
 
-	block = unmarshalBlock
+	err := json.Unmarshal([]byte(blockJSON), &receiptsBlock)
 
-	return &receiptsBlock{
-		Block:    block,
-		Receipts: receipts,
+	if err != nil {
+		return nil, err
 	}
+
+	return receiptsBlock, nil
 }
 
+/*
 func marshalBlock(block *receiptsBlock, inclTx bool, fullTx bool) (map[string]interface{}, error) {
 	fields := RPCMarshalHeader(block.Header())
 	fields["size"] = hexutil.Uint64(block.Size())
@@ -61,61 +53,14 @@ func marshalBlock(block *receiptsBlock, inclTx bool, fullTx bool) (map[string]in
 	}
 	fields["transactions"] = transactions
 	uncles := block.Uncles()
-	uncleHashes := make([]common.Hash, len(uncles))
-	for i, uncle := range uncles {
-		uncleHashes[i] = uncle.Hash()
-	}
-	fields["uncles"] = uncleHashes
 
 	return fields, nil
 }
-
-func unmarshalBlock(blockJSON string) (*types.Block, error) {
-	var raw json.RawMessage
-	err := json.Unmarshal([]byte(blockJSON), &raw)
-	if err != nil {
-		return nil, err
-	}
-	// Decode header and transactions.
-	var head *types.Header
-	var body rpcBlock
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, err
-	}
-	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
-	if head.TxHash == types.EmptyRootHash && len(body.Transactions) > 0 {
-		return nil, fmt.Errorf("server returned non-empty transaction list but block header indicates no transactions")
-	}
-	if head.TxHash != types.EmptyRootHash && len(body.Transactions) == 0 {
-		return nil, fmt.Errorf("server returned empty transaction list but block header indicates transactions")
-	}
-	// Fill the sender cache of transactions in the block.
-	txs := make([]*types.Transaction, len(body.Transactions))
-	for i, tx := range body.Transactions {
-		txs[i] = tx
-	}
-	return types.NewBlockWithHeader(head).WithBody(txs, []*types.Header{}), nil
-}
-
-type rpcBlock struct {
-	Hash         common.Hash          `json:"hash"`
-	Transactions []*types.Transaction `json:"transactions"`
-	UncleHashes  []common.Hash        `json:"uncles"`
-}
-
-type txExtraInfo struct {
-	BlockNumber *string         `json:"blockNumber,omitempty"`
-	BlockHash   *common.Hash    `json:"blockHash,omitempty"`
-	From        *common.Address `json:"from,omitempty"`
-}
+*/
 
 type receiptsBlock struct {
 	Header       *types.Header        `json:"header"`
 	Receipts     []*types.Receipt     `json:"receipts,omitempty"`
 	Hash         common.Hash          `json:"hash"`
 	Transactions []*types.Transaction `json:"transactions"`
-	UncleHashes  []common.Hash        `json:"uncles"`
 }

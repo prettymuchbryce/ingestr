@@ -3,18 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io/ioutil"
 	"math/big"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/ethereum/go-ethereum/core/types"
 )
 
 type s3Client interface {
-	getBlock(blockNumber *big.Int) (*ReceiptsBlock, error)
+	getBlock(blockNumber *big.Int) (string, error)
 	storeBlock(blockNumber *big.Int, data string) error
 }
 
@@ -52,7 +50,7 @@ func createRealS3Client(bucket string, timeout time.Duration) *realS3Client {
 	}
 }
 
-func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error) {
+func (client *realS3Client) getBlock(blockNumber *big.Int) (string, error) {
 	ctx := context.Background()
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()
@@ -64,20 +62,15 @@ func (client *realS3Client) getBlock(blockNumber *big.Int) (*types.Block, error)
 	}
 	result, err := client.s3.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	body, err := ioutil.ReadAll(result.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	block, err := unmarshalBlock(string(body))
-	if err != nil {
-		return nil, err
-	}
-
-	return block, nil
+	return string(body), nil
 }
 
 func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error {
@@ -85,26 +78,14 @@ func (client *realS3Client) storeBlock(blockNumber *big.Int, data string) error 
 	ctx, cancelFn := context.WithTimeout(ctx, client.timeout)
 	defer cancelFn()
 
-	blockNumberString := block.Number().String()
-
-	jsonMap, err := RPCMarshalBlock(block, true, true)
-	if err != nil {
-		return err
-	}
-
-	jsonBytes, err := json.Marshal(jsonMap)
-	if err != nil {
-		return err
-	}
-
-	jsonString := string(jsonBytes)
+	blockNumberString := blockNumber.String()
 
 	input := &s3.PutObjectInput{
 		Bucket: &client.bucket,
 		Key:    &blockNumberString,
-		Body:   bytes.NewReader([]byte(jsonString)),
+		Body:   bytes.NewReader([]byte(data)),
 	}
 
-	_, err = client.s3.PutObjectWithContext(ctx, input)
+	_, err := client.s3.PutObjectWithContext(ctx, input)
 	return err
 }

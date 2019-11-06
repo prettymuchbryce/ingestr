@@ -105,12 +105,14 @@ func main() {
 	initLogger()
 
 	log.Info("Starting up")
-	log.Info("Creating Clients")
+	log.Info("Establishing connection to Ethereum node")
 
 	ethClient, err := createRealEthClient(conf.ethNodeHost, conf.ethNodePort)
 	if err != nil {
 		log.Fatal("Failed to connect to ETH node")
 	}
+
+	log.Info("Connecting to redis")
 
 	redisClient, err := createRealRedisClient(
 		conf.redisAddress,
@@ -127,8 +129,10 @@ func main() {
 		log.Fatal("Failed to connect to redis")
 	}
 
+	log.Info("Creating SNS client")
 	snsClient := createRealSnsClient(conf.snsTopic, msToDuration(conf.snsTimeoutMS))
 
+	log.Info("Creating S3 client")
 	s3Client := createRealS3Client(conf.s3BucketURI, msToDuration(conf.s3TimeoutMS))
 
 	clients := &clients{
@@ -204,17 +208,17 @@ func processBlock(
 ) error {
 	log.Infof("Processing block: %s", blockNumber.String())
 
-	block, err := clients.s3.getBlock(blockNumber)
+	var receiptBlockString string
+	receiptBlockString, err := clients.s3.getBlock(blockNumber)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == s3.ErrCodeNoSuchKey {
 				ctx := context.Background()
 				ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
 				defer cancelFn()
-				var err2 error
-				block, err2 = clients.eth.BlockByNumber(ctx, blockNumber)
-				if err2 != nil {
-					log.Errorf("Failed to get block from ETH node: %s", block.Number().String())
+				block, err := clients.eth.BlockByNumber(ctx, blockNumber)
+				if err != nil {
+					log.Errorf("Failed to get block from ETH node: %s", blockNumber.String())
 				}
 				transactions := block.Transactions()
 				var receipts []*types.Receipt
@@ -222,18 +226,25 @@ func processBlock(
 					t := transactions[i]
 					ctx := context.Background()
 					ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
-					receipt, err := TransactionReceipt(ctx, t.Hash())
+					receipt, err := clients.eth.TransactionReceipt(ctx, t.Hash())
 					if err != nil {
+						cancelFn()
 						return err
 					}
 					receipts = append(receipts, receipt)
 					cancelFn()
-					// t.Hash()
 				}
 
-				block = &ReceiptsBlock{
-					Block:    block,
-					Receipts: receipts,
+				receiptsBlock := &receiptsBlock{
+					Header:       block.Header(),
+					Receipts:     receipts,
+					Hash:         block.Hash(),
+					Transactions: block.Transactions(),
+				}
+
+				receiptBlockString, err = marshalReceiptBlock(receiptsBlock)
+				if err != nil {
+					return err
 				}
 			}
 		} else {
@@ -245,18 +256,18 @@ func processBlock(
 		log.Infof("s3 Cache hit for block: %s", blockNumber.String())
 	}
 
-	err = clients.sns.broadcast(block)
+	err = clients.sns.publish(receiptBlockString)
 	if err != nil {
-		log.Errorf("Failed to publish block to SNS: %s", block.Number().String())
+		log.Errorf("Failed to publish block to SNS: %s", blockNumber.String())
 	}
 
-	err = clients.s3.storeBlock(block)
+	err = clients.s3.storeBlock(blockNumber, receiptBlockString)
 	if err != nil {
-		log.Errorf("Failed to store block in S3: %s", block.Number().String())
+		log.Errorf("Failed to store block in S3: %s", blockNumber.String())
 	}
 
 	for retries := 10; retries > 0; retries-- {
-		err := clients.redis.removeFromWorkingSet(block)
+		err := clients.redis.removeFromWorkingSet(blockNumber)
 		if err == nil {
 			break
 		}
@@ -270,7 +281,7 @@ func processBlock(
 		}
 	}
 
-	log.Infof("Successfully processed block: %s", block.Number().String())
+	log.Infof("Successfully processed block: %s", blockNumber.String())
 
 	return nil
 }

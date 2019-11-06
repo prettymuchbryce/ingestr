@@ -5,12 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
 	redis "github.com/go-redis/redis/v7"
 )
 
 type redisClient interface {
-	removeFromWorkingSet(block *types.Block) error
+	removeFromWorkingSet(blockNumber *big.Int) error
 	getStaleWorkingBlocks() ([]*big.Int, error)
 	getNextWorkingBlocks() ([]*big.Int, error)
 }
@@ -221,7 +220,7 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 	return blocks, watchErr
 }
 
-func (client *realRedisClient) removeFromWorkingSet(block *types.Block) error {
+func (client *realRedisClient) removeFromWorkingSet(blockNumber *big.Int) error {
 	watchErr := client.redis.Watch(func(tx *redis.Tx) error {
 		cmd := client.redis.Get(client.lastFinishedBlockKey)
 		err := cmd.Err()
@@ -234,14 +233,14 @@ func (client *realRedisClient) removeFromWorkingSet(block *types.Block) error {
 			}
 			lastFinishedBlock = big.NewInt(lastFinishedInt)
 
-			if block.Number().Cmp(lastFinishedBlock) < 0 {
-				cmd := tx.Set(client.lastFinishedBlockKey, block.Number().Int64(), 0)
+			if blockNumber.Cmp(lastFinishedBlock) < 0 {
+				cmd := tx.Set(client.lastFinishedBlockKey, blockNumber.Int64(), 0)
 				if cmd.Err() != nil {
 					return cmd.Err()
 				}
 			}
 		} else if err == redis.Nil {
-			cmd := tx.Set(client.lastFinishedBlockKey, block.Number().Int64(), 0)
+			cmd := tx.Set(client.lastFinishedBlockKey, blockNumber.Int64(), 0)
 			if cmd.Err() != nil {
 				return cmd.Err()
 			}
@@ -249,12 +248,12 @@ func (client *realRedisClient) removeFromWorkingSet(block *types.Block) error {
 			return err
 		}
 
-		cmdRem := tx.ZRem(client.workingBlockSetKey, block.Number().Int64())
+		cmdRem := tx.ZRem(client.workingBlockSetKey, blockNumber.Int64())
 		if cmdRem.Err() != nil {
 			return cmdRem.Err()
 		}
 
-		cmdRem = tx.ZRem(client.workingTimeSetKey, block.Number().Int64())
+		cmdRem = tx.ZRem(client.workingTimeSetKey, blockNumber.Int64())
 		if cmdRem.Err() != nil {
 			return cmdRem.Err()
 		}

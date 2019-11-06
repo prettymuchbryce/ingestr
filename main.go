@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"os"
 	"strconv"
@@ -256,8 +255,6 @@ func processBlock(
 					log.Error(err)
 					return err
 				}
-
-				fmt.Println(receiptBlockString)
 			}
 		} else {
 			log.Error(err)
@@ -295,7 +292,7 @@ func processBlock(
 		if retries == 0 {
 			log.Error("Failed to process block due to redis lock. Will retry after TTL")
 			log.Error(err)
-			return nil
+			return err
 		}
 	}
 

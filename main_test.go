@@ -70,18 +70,9 @@ func TestMain(m *testing.M) {
 func TestFindWorkNoLatest(t *testing.T) {
 	newWorkItems := findNextWork(testClients, testConf)
 	assert.Equal(t, 0, newWorkItems)
+
+	testClearRedis(redisClientTest)
 }
-
-/*
-func TestFindNextWorkLatest(t *testing.T) {
-	latestBlock = big.NewInt(int64(8886217))
-
-	newWorkItems := findNextWork(testClients, testConf)
-	assert.Equal(t, 3, newWorkItems)
-
-	latestBlock = nil
-}
-*/
 
 func TestProcessBlock(t *testing.T) {
 	blockNumber := big.NewInt(int64(8886217))
@@ -100,4 +91,6 @@ func TestProcessBlock(t *testing.T) {
 	workingSet, err := testGetRedisWorkingBlocks(redisClientTest, testConf.redisWorkingTimeSetKey)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(workingSet))
+
+	testClearRedis(redisClientTest)
 }

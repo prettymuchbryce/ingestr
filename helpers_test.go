@@ -48,3 +48,8 @@ func testGetRedisLastFinishedBlock(client *redis.Client, key string) (int64, err
 
 	return ii, nil
 }
+
+func testClearRedis(client *redis.Client) error {
+	result := client.FlushDB()
+	return result.Err()
+}

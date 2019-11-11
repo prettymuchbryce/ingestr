@@ -38,7 +38,6 @@ type config struct {
 	redisWorkingBlockSetKey   string
 	redisWorkingTimeSetKey    string
 	s3BucketURI               string
-	s3Enabled                 bool
 	s3TimeoutMS               int
 	snsEnabled                bool
 	snsTimeoutMS              int
@@ -53,7 +52,6 @@ func loadEnvVariables() *config {
 	minConfirmations, _ := strconv.Atoi(os.Getenv("MIN_CONFIRMATIONS"))
 	newBlockTimeoutMS, _ := strconv.Atoi(os.Getenv("NEW_BLOCK_TIMEOUT_MS"))
 	redisDB, _ := strconv.Atoi(os.Getenv("REDIS_DB"))
-	s3Enabled, _ := strconv.ParseBool(os.Getenv("S3_ENABLED"))
 	s3TimeoutMS, _ := strconv.Atoi(os.Getenv("S3_TIMEOUT_MS"))
 	snsEnabled, _ := strconv.ParseBool(os.Getenv("SNS_ENABLED"))
 	snsTimeoutMS, _ := strconv.Atoi(os.Getenv("SNS_TIMEOUT_MS"))
@@ -74,7 +72,6 @@ func loadEnvVariables() *config {
 		redisWorkingBlockSetKey:   os.Getenv("REDIS_WORKING_BLOCK_SET_KEY"),
 		redisWorkingTimeSetKey:    os.Getenv("REDIS_WORKING_TIME_SET_KEY"),
 		s3BucketURI:               os.Getenv("S3_BUCKET_URI"),
-		s3Enabled:                 s3Enabled,
 		s3TimeoutMS:               s3TimeoutMS,
 		snsEnabled:                snsEnabled,
 		snsTimeoutMS:              snsTimeoutMS,

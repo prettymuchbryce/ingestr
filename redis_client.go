@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -141,8 +140,6 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 
 			latestBlock := big.NewInt(int64(resultInt))
 			nextBlock.Add(latestBlock, big.NewInt(1))
-
-			fmt.Println("Next block after working set is", nextBlock.String())
 		}
 
 		// Check where we previously left off
@@ -164,13 +161,10 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 			}
 			lastFinishedBlock := big.NewInt(lastFinishedInt)
 
-			fmt.Println("Compare lastFinishedBlock", lastFinishedBlock.String(), " with next block after working set ", nextBlock.String())
-
 			if lastFinishedBlock.Cmp(nextBlock) >= 0 {
 				nextBlock.Add(lastFinishedBlock, big.NewInt(1))
 			}
 
-			fmt.Println("Next block will be ", nextBlock.String())
 		}
 
 		for i := 0; i < client.maxConcurrency-int(card); i++ {

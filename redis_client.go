@@ -133,13 +133,15 @@ func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
 				return err
 			}
 
-			resultInt, err := strconv.Atoi(results[0])
-			if err != nil {
-				return err
-			}
+			if len(results) > 0 {
+				resultInt, err := strconv.Atoi(results[0])
+				if err != nil {
+					return err
+				}
 
-			latestBlock := big.NewInt(int64(resultInt))
-			nextBlock.Add(latestBlock, big.NewInt(1))
+				latestBlock := big.NewInt(int64(resultInt))
+				nextBlock.Add(latestBlock, big.NewInt(1))
+			}
 		}
 
 		// Check where we previously left off

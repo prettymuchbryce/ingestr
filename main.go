@@ -218,12 +218,13 @@ func processBlock(
 			if aerr.Code() == s3.ErrCodeNoSuchKey {
 				ctx := context.Background()
 				ctx, cancelFn := context.WithTimeout(ctx, msToDuration(config.httpReqTimeoutMS))
-				defer cancelFn()
 				block, err := clients.eth.BlockByNumber(ctx, blockNumber)
 				if err != nil {
+					cancelFn()
 					log.Errorf("Failed to get block from ETH node: %s", blockNumber.String())
 					return err
 				}
+				cancelFn()
 				transactions := block.Transactions()
 				var receipts []*types.Receipt = make([]*types.Receipt, 0)
 				for i := 0; i < len(transactions); i++ {
@@ -252,6 +253,9 @@ func processBlock(
 					log.Error(err)
 					return err
 				}
+			} else {
+				log.Error(err)
+				return err
 			}
 		} else {
 			log.Error(err)

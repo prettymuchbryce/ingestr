@@ -211,6 +211,7 @@ func processBlock(
 ) error {
 	log.Infof("Processing block: %s", blockNumber.String())
 
+	var hitFromCache = false
 	var receiptBlockString string
 	receiptBlockString, err := clients.s3.GetBlock(blockNumber)
 	if err != nil {
@@ -265,6 +266,7 @@ func processBlock(
 
 	if err == nil {
 		log.Infof("s3 Cache hit for block: %s", blockNumber.String())
+		hitFromCache = true
 	}
 
 	err = clients.sns.Publish(blockNumber.String())
@@ -274,11 +276,13 @@ func processBlock(
 		return err
 	}
 
-	err = clients.s3.StoreBlock(blockNumber, receiptBlockString)
-	if err != nil {
-		log.Errorf("Failed to store block in S3: %s", blockNumber.String())
-		log.Error(err)
-		return err
+	if !hitFromCache {
+		err = clients.s3.StoreBlock(blockNumber, receiptBlockString)
+		if err != nil {
+			log.Errorf("Failed to store block in S3: %s", blockNumber.String())
+			log.Error(err)
+			return err
+		}
 	}
 
 	for retries := 10; retries > 0; retries-- {

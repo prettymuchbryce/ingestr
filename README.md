@@ -1,6 +1,6 @@
 # Ingestr
 
-Ingestr is a microservice that consumes Ethereum blocks for enqueing into SNS and storage in S3.
+Ingestr is a Go microservice that consumes Ethereum blocks for enqueing into SNS and storage in S3.
 
 ![My image](https://prettymuchbryce.s3-us-west-1.amazonaws.com/ingestr.png)
   

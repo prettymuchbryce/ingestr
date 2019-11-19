@@ -10,8 +10,8 @@ import (
 
 type redisClient interface {
 	removeFromWorkingSet(blockNumber *big.Int) error
-	getStaleWorkingBlocks() ([]*big.Int, error)
-	getNextWorkingBlocks() ([]*big.Int, error)
+	getStaleWorkingBlock() (*big.Int, error)
+	getNextWorkingBlock() (*big.Int, error)
 }
 
 type realRedisClient struct {
@@ -20,7 +20,6 @@ type realRedisClient struct {
 	workingTimeSetKey    string
 	workingBlockSetKey   string
 	lastFinishedBlockKey string
-	maxConcurrency       int
 	ttlSeconds           int
 }
 
@@ -32,7 +31,6 @@ func createRealRedisClient(
 	workingTimeSetKey string,
 	workingBlockSetKey string,
 	lastFinishedBlockKey string,
-	maxConcurrency int,
 	ttlSeconds int,
 ) (*realRedisClient, error) {
 	client := redis.NewClient(&redis.Options{
@@ -49,17 +47,17 @@ func createRealRedisClient(
 		workingTimeSetKey,
 		workingBlockSetKey,
 		lastFinishedBlockKey,
-		maxConcurrency,
 		ttlSeconds,
 	}, err
 }
 
-func (client *realRedisClient) getStaleWorkingBlocks() ([]*big.Int, error) {
-	var blocks []*big.Int
+func (client *realRedisClient) getStaleWorkingBlock() (*big.Int, error) {
+	var block *big.Int
 	err := client.redis.Watch(func(tx *redis.Tx) error {
 		options := &redis.ZRangeBy{
-			Min: "-inf",
-			Max: strconv.FormatInt(time.Now().Unix()-int64(client.ttlSeconds), 10),
+			Min:   "-inf",
+			Max:   strconv.FormatInt(time.Now().Unix()-int64(client.ttlSeconds), 10),
+			Count: 1,
 		}
 		vals := client.redis.ZRangeByScore(client.workingTimeSetKey, options)
 		blockStrings, err := vals.Result()
@@ -72,148 +70,110 @@ func (client *realRedisClient) getStaleWorkingBlocks() ([]*big.Int, error) {
 			return err
 		}
 
-		// Check if any working blocks are stale
-		for i := 0; i < len(blockStrings); i++ {
-			i, err := strconv.Atoi(blockStrings[i])
+		if len(blockStrings) > 0 {
+			i, err := strconv.Atoi(blockStrings[0])
 			if err != nil {
 				return err
 			}
-			blocks = append(blocks, big.NewInt(int64(i)))
+			block = big.NewInt(int64(i))
 		}
 
 		// Add as redis members
-		members := []*redis.Z{}
-		for i := 0; i < len(blocks); i++ {
-			member := &redis.Z{
+		var member *redis.Z
+		if block != nil {
+			member = &redis.Z{
 				Score:  float64(time.Now().Unix()),
-				Member: blocks[i].Int64(),
+				Member: block.Int64(),
 			}
-			members = append(members, member)
 		}
 
-		// Reset stale members TTL
-		if len(members) > 0 {
-			cmd := tx.ZAdd(client.workingTimeSetKey, members...)
+		// Reset stale member TTL
+		if member != nil {
+			cmd := tx.ZAdd(client.workingTimeSetKey, member)
 			return cmd.Err()
 		}
 
 		return nil
 	}, client.workingTimeSetKey)
 
-	return blocks, err
+	return block, err
 }
 
-func (client *realRedisClient) getNextWorkingBlocks() ([]*big.Int, error) {
-	var blocks []*big.Int
+func (client *realRedisClient) getNextWorkingBlock() (*big.Int, error) {
+	var block *big.Int = big.NewInt(0)
 	watchErr := client.redis.Watch(func(tx *redis.Tx) error {
+		options := &redis.ZRangeBy{
+			Min:    "-inf",
+			Max:    "inf",
+			Count:  1,
+			Offset: 0,
+		}
 
-		// Get cardinality of working set
-		cmd := client.redis.ZCard(client.workingTimeSetKey)
-		card, err := cmd.Result()
+		vals := client.redis.ZRevRangeByScore(client.workingBlockSetKey, options)
+		results, err := vals.Result()
 		if err != nil {
+			// This is a first run
 			if err == redis.Nil {
-				card = 0
+				block = client.workingBlockStart
+				return nil
 			} else {
 				return err
 			}
-		}
-
-		var nextBlock *big.Int = big.NewInt(0)
-
-		if card > 0 {
-			options := &redis.ZRangeBy{
-				Min:    "-inf",
-				Max:    "inf",
-				Count:  1,
-				Offset: 0,
-			}
-			vals := client.redis.ZRevRangeByScore(client.workingBlockSetKey, options)
-			results, err := vals.Result()
-			if err != nil {
-				return err
-			}
-
+		} else {
 			if len(results) > 0 {
 				resultInt, err := strconv.Atoi(results[0])
 				if err != nil {
 					return err
 				}
 
-				latestBlock := big.NewInt(int64(resultInt))
-				nextBlock.Add(latestBlock, big.NewInt(1))
+				block = big.NewInt(int64(resultInt))
+				block.Add(latestBlock, big.NewInt(1))
 			}
 		}
 
 		// Check where we previously left off
 		getCmd := client.redis.Get(client.lastFinishedBlockKey)
 		err = getCmd.Err()
-
 		if err != nil {
-			// This is a first run
-			if err == redis.Nil {
-				nextBlock = client.workingBlockStart
-			} else {
-				return err
-			}
+			return err
 		} else {
 			// Start from where we left off
 			lastFinishedInt, err := getCmd.Int64()
 			if err != nil {
 				return err
 			}
+
 			lastFinishedBlock := big.NewInt(lastFinishedInt)
 
-			if lastFinishedBlock.Cmp(nextBlock) >= 0 {
-				nextBlock.Add(lastFinishedBlock, big.NewInt(1))
+			if lastFinishedBlock.Cmp(block) >= 0 {
+				block.Add(lastFinishedBlock, big.NewInt(1))
 			}
-
 		}
 
-		for i := 0; i < client.maxConcurrency-int(card); i++ {
-			iBig := big.NewInt(int64(i))
-			var next *big.Int = big.NewInt(0)
-			next.Add(nextBlock, iBig)
-			blocks = append(blocks, next)
+		// Add as redis member
+		member := &redis.Z{
+			Score:  float64(time.Now().Unix()),
+			Member: block.Int64(),
 		}
 
-		if len(blocks) == 0 {
-			return nil
-		}
-
-		// Add as redis members
-		members := []*redis.Z{}
-		for i := 0; i < len(blocks); i++ {
-			member := &redis.Z{
-				Score:  float64(time.Now().Unix()),
-				Member: blocks[i].Int64(),
-			}
-
-			members = append(members, member)
-		}
-
-		cmd = tx.ZAdd(client.workingTimeSetKey, members...)
+		cmd := tx.ZAdd(client.workingTimeSetKey, member)
 
 		if cmd.Err() != nil {
 			return cmd.Err()
 		}
 
-		// Add as redis members
-		members = []*redis.Z{}
-		for i := 0; i < len(blocks); i++ {
-			member := &redis.Z{
-				Score:  float64(blocks[i].Int64()),
-				Member: blocks[i].Int64(),
-			}
-
-			members = append(members, member)
+		// Add as redis member
+		member = &redis.Z{
+			Score:  float64(block.Int64()),
+			Member: block.Int64(),
 		}
 
-		cmd = tx.ZAdd(client.workingBlockSetKey, members...)
+		cmd = tx.ZAdd(client.workingBlockSetKey, member)
 
 		return cmd.Err()
 	}, client.workingTimeSetKey)
 
-	return blocks, watchErr
+	return block, watchErr
 }
 
 func (client *realRedisClient) removeFromWorkingSet(blockNumber *big.Int) error {

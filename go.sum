@@ -196,6 +196,8 @@ github.com/satori/go.uuid v1.2.0/go.mod h1:dA0hQrYB0VpLJoorglMZABFdXlWrHn1NEOzdh
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=
 github.com/sirupsen/logrus v1.4.2 h1:SPIRibHv4MatM3XXNO2BJeFLZwZ2LvZgfQ5+UNI2im4=
 github.com/sirupsen/logrus v1.4.2/go.mod h1:tLMulIdttU9McNUspp0xgXVQah82FyeX6MwdIuYE2rE=
+github.com/skelterjohn/rerun v0.0.0-20170307154207-fda4b67b37d0 h1:bnhmSy0QwqCtsWDLh4bi79I4BnMP4vDRV1r0tAkXazg=
+github.com/skelterjohn/rerun v0.0.0-20170307154207-fda4b67b37d0/go.mod h1:+v9RJUfqXMIoWANwJFa+wTpyUm5lQqxb9iaFL9xsKIQ=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/stamblerre/gocode v1.0.0 h1:5aTRgkRTOS8mELHoKatkwhfX44OdEV3iwu3FCXyvLzk=
 github.com/stamblerre/gocode v1.0.0/go.mod h1:ONyGamdxpnxaG2+XLyGkNuuoYISmz0QFVHScxvsXsqM=

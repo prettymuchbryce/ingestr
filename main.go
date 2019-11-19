@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -16,6 +15,7 @@ import (
 )
 
 var latestBlock *big.Int
+var workCompleteChan chan bool = make(chan bool)
 
 type clients struct {
 	eth   ethClient
@@ -103,7 +103,8 @@ func main() {
 
 	ethClient, err := createRealEthClient(conf.ethNodeHost, conf.ethNodePort)
 	if err != nil {
-		log.Fatal("Failed to connect to ETH node")
+		log.Error("Failed to connect to ETH node")
+		log.Fatal(err)
 		return
 	}
 
@@ -117,11 +118,11 @@ func main() {
 		conf.redisWorkingTimeSetKey,
 		conf.redisWorkingBlockSetKey,
 		conf.redisLastFinishedBlockKey,
-		conf.maxConcurrency,
 		conf.workingBlockTTLSeconds,
 	)
 	if err != nil {
-		log.Fatal("Failed to connect to redis")
+		log.Error("Failed to connect to redis")
+		log.Fatal(err)
 		return
 	}
 
@@ -144,8 +145,16 @@ func main() {
 func start(clients *clients, config *config) {
 	go func() {
 		for {
-			findNextWork(clients, config)
-			time.Sleep(10 * time.Millisecond)
+			if latestBlock != nil {
+				for i := 0; i < config.maxConcurrency; i++ {
+					findNextWork(clients, config)
+				}
+
+				for {
+					<-workCompleteChan
+					findNextWork(clients, config)
+				}
+			}
 		}
 	}()
 
@@ -170,37 +179,34 @@ func start(clients *clients, config *config) {
 
 func findNextWork(clients *clients, config *config) int {
 	var newWorkItems int = 0
-	if latestBlock != nil {
-		staleBlocks, err := clients.redis.getStaleWorkingBlocks()
+	nextBlock, err := clients.redis.getStaleWorkingBlock()
+	if err != nil {
+		if err != redis.TxFailedErr {
+			log.Error(err)
+			return 0
+		}
+	}
+
+	if nextBlock == nil {
+		nextBlock, err = clients.redis.getNextWorkingBlock()
 		if err != nil {
 			if err != redis.TxFailedErr {
 				log.Error(err)
 				return 0
-			}
-		}
-
-		nextBlocks, err := clients.redis.getNextWorkingBlocks()
-		if err != nil {
-			if err != redis.TxFailedErr {
-				log.Error(err)
-				return 0
-			}
-		}
-
-		blocks := append(staleBlocks, nextBlocks...)
-
-		nextAllowedBlock := latestBlock.Sub(
-			latestBlock,
-			big.NewInt(int64(config.minConfirmations)),
-		)
-
-		for _, block := range blocks {
-			if block.Cmp(nextAllowedBlock) <= 0 {
-				go processBlock(block, config, clients)
-				newWorkItems++
 			}
 		}
 	}
+
+	nextAllowedBlock := latestBlock.Sub(
+		latestBlock,
+		big.NewInt(int64(config.minConfirmations)),
+	)
+
+	if nextBlock.Cmp(nextAllowedBlock) <= 0 {
+		go processBlock(nextBlock, config, clients)
+		newWorkItems++
+	}
+
 	return newWorkItems
 }
 
@@ -210,6 +216,8 @@ func processBlock(
 	clients *clients,
 ) error {
 	log.Infof("Processing block: %s", blockNumber.String())
+
+	defer func() { workCompleteChan <- true }()
 
 	var hitFromCache = false
 	var receiptBlockString string

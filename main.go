@@ -82,7 +82,7 @@ func loadEnvVariables() *config {
 }
 
 func main() {
-	env := os.Getenv("INGESTR_ENV")
+	env := os.Getenv("ENV")
 
 	if env == "" {
 		godotenv.Load(".env.development")
@@ -182,8 +182,11 @@ func findNextWork(clients *clients, config *config) int {
 	nextBlock, err := clients.redis.getStaleWorkingBlock()
 	if err != nil {
 		if err != redis.TxFailedErr {
+			log.Error("Failed to get a stale working block")
 			log.Error(err)
-			return 0
+			workCompleteChan <- true
+		} else {
+			log.Warn(err)
 		}
 	}
 
@@ -191,8 +194,11 @@ func findNextWork(clients *clients, config *config) int {
 		nextBlock, err = clients.redis.getNextWorkingBlock()
 		if err != nil {
 			if err != redis.TxFailedErr {
+				log.Error("Failed to get the next working block")
 				log.Error(err)
-				return 0
+				workCompleteChan <- true
+			} else {
+				log.Warn(err)
 			}
 		}
 	}
@@ -205,6 +211,8 @@ func findNextWork(clients *clients, config *config) int {
 	if nextBlock.Cmp(nextAllowedBlock) <= 0 {
 		go processBlock(nextBlock, config, clients)
 		newWorkItems++
+	} else {
+		workCompleteChan <- true
 	}
 
 	return newWorkItems

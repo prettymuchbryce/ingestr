@@ -55,14 +55,12 @@ func (client *realRedisClient) getStaleWorkingBlock() (*big.Int, error) {
 	var block *big.Int
 	err := client.redis.Watch(func(tx *redis.Tx) error {
 		options := &redis.ZRangeBy{
-			Min:   "-inf",
-			Max:   strconv.FormatInt(time.Now().Unix()-int64(client.ttlSeconds), 10),
-			Count: 1,
+			Min: "-inf",
+			Max: strconv.FormatInt(time.Now().Unix()-int64(client.ttlSeconds), 10),
 		}
 		vals := client.redis.ZRangeByScore(client.workingTimeSetKey, options)
 		blockStrings, err := vals.Result()
 		if err != nil {
-			// No key (first run)
 			if err == redis.Nil {
 				return nil
 			}
@@ -76,6 +74,7 @@ func (client *realRedisClient) getStaleWorkingBlock() (*big.Int, error) {
 				return err
 			}
 			block = big.NewInt(int64(i))
+		} else {
 		}
 
 		// Add as redis members
@@ -126,8 +125,7 @@ func (client *realRedisClient) getNextWorkingBlock() (*big.Int, error) {
 					return err
 				}
 
-				block = big.NewInt(int64(resultInt))
-				block.Add(latestBlock, big.NewInt(1))
+				block = big.NewInt(int64(resultInt + 1))
 			}
 		}
 

@@ -133,6 +133,11 @@ func (client *realRedisClient) getNextWorkingBlock(nextAllowedBlock *big.Int) (*
 		getCmd := client.redis.Get(client.lastFinishedBlockKey)
 		err = getCmd.Err()
 		if err != nil {
+			// This is a first run
+			if err == redis.Nil {
+				block = client.workingBlockStart
+				return nil
+			}
 			return err
 		} else {
 			// Start from where we left off

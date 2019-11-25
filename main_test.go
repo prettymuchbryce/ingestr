@@ -47,7 +47,6 @@ func TestMain(m *testing.M) {
 		testConf.redisWorkingBlockSetKey,
 		testConf.redisLastFinishedBlockKey,
 		testConf.maxConcurrency,
-		testConf.workingBlockTTLSeconds,
 	)
 
 	redisClientTest = rc.redis

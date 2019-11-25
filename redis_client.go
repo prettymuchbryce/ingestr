@@ -11,7 +11,7 @@ import (
 type redisClient interface {
 	removeFromWorkingSet(blockNumber *big.Int) error
 	getStaleWorkingBlock() (*big.Int, error)
-	getNextWorkingBlock() (*big.Int, error)
+	getNextWorkingBlock(nextAllowedBlock *big.Int) (*big.Int, error)
 }
 
 type realRedisClient struct {
@@ -98,7 +98,7 @@ func (client *realRedisClient) getStaleWorkingBlock() (*big.Int, error) {
 	return block, err
 }
 
-func (client *realRedisClient) getNextWorkingBlock() (*big.Int, error) {
+func (client *realRedisClient) getNextWorkingBlock(nextAllowedBlock *big.Int) (*big.Int, error) {
 	var block *big.Int = big.NewInt(0)
 	watchErr := client.redis.Watch(func(tx *redis.Tx) error {
 		options := &redis.ZRangeBy{
@@ -146,6 +146,10 @@ func (client *realRedisClient) getNextWorkingBlock() (*big.Int, error) {
 			if lastFinishedBlock.Cmp(block) >= 0 {
 				block.Add(lastFinishedBlock, big.NewInt(1))
 			}
+		}
+
+		if block.Cmp(nextAllowedBlock) > 0 {
+			return nil
 		}
 
 		// Add as redis member

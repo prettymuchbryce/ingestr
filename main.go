@@ -179,40 +179,44 @@ func start(clients *clients, config *config) {
 
 func findNextWork(clients *clients, config *config) int {
 	var newWorkItems int = 0
+
+	nextAllowedBlock := big.NewInt(0)
+	nextAllowedBlock.Sub(
+		latestBlock,
+		big.NewInt(int64(config.minConfirmations)),
+	)
+
 	nextBlock, err := clients.redis.getStaleWorkingBlock()
 	if err != nil {
 		if err != redis.TxFailedErr {
 			log.Error("Failed to get a stale working block")
 			log.Error(err)
-			workCompleteChan <- true
+			go func() { workCompleteChan <- true }()
+			return 0
 		} else {
 			log.Warn(err)
 		}
 	}
 
 	if nextBlock == nil {
-		nextBlock, err = clients.redis.getNextWorkingBlock()
+		nextBlock, err = clients.redis.getNextWorkingBlock(nextAllowedBlock)
 		if err != nil {
 			if err != redis.TxFailedErr {
 				log.Error("Failed to get the next working block")
 				log.Error(err)
-				workCompleteChan <- true
+				go func() { workCompleteChan <- true }()
+				return 0
 			} else {
 				log.Warn(err)
 			}
 		}
 	}
 
-	nextAllowedBlock := latestBlock.Sub(
-		latestBlock,
-		big.NewInt(int64(config.minConfirmations)),
-	)
-
 	if nextBlock.Cmp(nextAllowedBlock) <= 0 {
 		go processBlock(nextBlock, config, clients)
 		newWorkItems++
 	} else {
-		workCompleteChan <- true
+		go func() { workCompleteChan <- true }()
 	}
 
 	return newWorkItems

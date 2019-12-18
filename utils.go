@@ -23,18 +23,6 @@ func marshalReceiptBlock(block *receiptsBlock) (string, error) {
 	return string(resultBytes), nil
 }
 
-func unmarshalReceiptBlock(blockJSON string) (*receiptsBlock, error) {
-	var receiptsBlock *receiptsBlock
-
-	err := json.Unmarshal([]byte(blockJSON), &receiptsBlock)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return receiptsBlock, nil
-}
-
 type receiptsBlock struct {
 	Header       *types.Header        `json:"header"`
 	Receipts     []*types.Receipt     `json:"receipts"`

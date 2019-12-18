@@ -213,7 +213,7 @@ func findNextWork(clients *clients, config *config) int {
 	}
 
 	if nextBlock.Cmp(nextAllowedBlock) <= 0 {
-		go processBlock(nextBlock, config, clients)
+		go processBlock(nextBlock, config, clients, workCompleteChan)
 		newWorkItems++
 	} else {
 		go func() { workCompleteChan <- true }()
@@ -226,6 +226,7 @@ func processBlock(
 	blockNumber *big.Int,
 	config *config,
 	clients *clients,
+	workCompleteChan chan bool,
 ) error {
 	log.Infof("Processing block: %s", blockNumber.String())
 

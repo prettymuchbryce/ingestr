@@ -67,6 +67,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestFindWorkNoLatest(t *testing.T) {
+	latestBlock = big.NewInt(1)
 	newWorkItems := findNextWork(testClients, testConf)
 	assert.Equal(t, 0, newWorkItems)
 
@@ -79,7 +80,10 @@ func TestProcessBlock(t *testing.T) {
 	ethMock.On("BlockByNumber", mock.Anything, blockNumber).Return(testGetBlock(testBlock), nil)
 	snsMock.On("Publish", mock.Anything).Return(nil)
 	s3Mock.On("StoreBlock", blockNumber, mock.Anything).Return(nil)
-	err := processBlock(blockNumber, testConf, testClients)
+
+	testWorkCompleteChan := make(chan bool, 1)
+
+	err := processBlock(blockNumber, testConf, testClients, testWorkCompleteChan)
 	assert.NoError(t, err)
 
 	result, err := testGetRedisLastFinishedBlock(redisClientTest, testConf.redisLastFinishedBlockKey)
@@ -92,4 +96,9 @@ func TestProcessBlock(t *testing.T) {
 	assert.Equal(t, 0, len(workingSet))
 
 	testClearRedis(redisClientTest)
+
+	chanResult := <-testWorkCompleteChan
+
+	assert.Equal(t, true, chanResult)
+
 }
